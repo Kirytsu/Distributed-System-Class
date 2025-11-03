@@ -243,6 +243,7 @@ class PeerNode:
                         self.v_on_receive(inV)
                         self._print(f"[{self.name}] RECV {msg.get('kind','?')} "
                                     f"from {msg.get('sender')} id={msg.get('id')} "
+                                    f"text='{msg.get('text')}' "
                                     f"L_in={inL}->{self.L} V_in={inV}->{self.V}")
                         if msg.get("kind") == "chat":
                             time.sleep(self.proc_delay_s)
