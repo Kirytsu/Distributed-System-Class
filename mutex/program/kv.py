@@ -127,7 +127,7 @@ class Gossip:
         self.peers_map=peers_map
         self.sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         self.sock.bind(('0.0.0.0',udp_port))
-        print(f"[GOSSIP node {self.id}] UDP bound to port {udp_port}, peers_map={peers_map}")
+        # print(f"[GOSSIP node {self.id}] UDP bound to port {udp_port}, peers_map={peers_map}")
         threading.Thread(target=self._rx,daemon=True).start()
         threading.Thread(target=self._tx,daemon=True).start()
 
@@ -135,11 +135,10 @@ class Gossip:
         while True:
             try:
                 data,addr=self.sock.recvfrom(65535)
-                print(f"[GOSSIP node {self.id}] UDP received {len(data)} bytes from {addr}")
                 msg=json.loads(data.decode())
                 if msg.get('type')!='gossip': continue
                 sid=msg['from']; hb=msg.get('heartbeat',0)
-                print(f"[GOSSIP node {self.id}] Gossip from node {sid}, hb={hb}")
+                # print(f"[GOSSIP node {self.id}] Gossip from node {sid}, hb={hb}")
                 now=time.monotonic()
                 self.table.setdefault(sid,{'state':STATE_SUSPECT,'hb':0,'last':now,'addr':(addr[0],None)})
                 s=self.table[sid]; s['state']=STATE_ALIVE; s['hb']=max(s['hb'],hb); s['last']=now
@@ -167,14 +166,14 @@ class Gossip:
                 if age>5.0: inf['state']=STATE_DEAD
                 elif age>2.0 and inf['state']==STATE_ALIVE: inf['state']=STATE_SUSPECT
             msg={'type':'gossip','from':self.id,'heartbeat':me['hb'],'known':{str(n):{'state':inf['state'],'hb':inf['hb'],'addr':list(inf.get('addr',('127.0.0.1',None)))} for n,inf in self.table.items()}}
-            # CRITICAL FIX: send to ALL peers for reliable propagation in small clusters
-            targets = self.peers_map if self.peers_map else []
-            print(f"[GOSSIP node {self.id}] TX hb={me['hb']}, sending to {len(targets)} peers: {[(h,udp,nid) for h,_,udp,nid in targets]}")
+            # send to ALL peers (except self) for reliable propagation in small clusters
+            targets = [p for p in self.peers_map if p[3] != self.id]
+            # print(f"[GOSSIP node {self.id}] TX hb={me['hb']}, sending to {len(targets)} peers: {[(h,udp,nid) for h,_,udp,nid in targets]}")
             for h,_tcp,peer_udp,_nid in targets:
                 try:
                     payload = json.dumps(msg).encode()
                     self.sock.sendto(payload, (h, peer_udp))
-                    print(f"[GOSSIP node {self.id}] Sent {len(payload)} bytes to {h}:{peer_udp}")
+                    # print(f"[GOSSIP node {self.id}] Sent {len(payload)} bytes to {h}:{peer_udp}")
                 except Exception as e:
                     print(f"[GOSSIP node {self.id}] TX error to {h}:{peer_udp}: {e}")
 
@@ -382,7 +381,7 @@ class Node:
 def parse_peers(s: str) -> List[Tuple[str,int,int,int]]:
     """
     Accepts either host:tcp=id  or host:tcp:udp=id
-    If udp omitted, infer udp=tcp+100
+    If udp omitted, infer udp=tcp
     Returns list of (host, tcp, udp, id)
     """
     out=[]
@@ -392,7 +391,7 @@ def parse_peers(s: str) -> List[Tuple[str,int,int,int]]:
         parts = hp.split(':')
         if len(parts)==2:
             h, tcp_s = parts
-            udp_s = str(int(tcp_s)+100)
+            udp_s = str(int(tcp_s))
         else:
             h, tcp_s, udp_s = parts
         out.append((h, int(tcp_s), int(udp_s), int(nid_s)))
