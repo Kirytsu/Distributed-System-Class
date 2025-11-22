@@ -27,7 +27,11 @@ python3 ../program/kvclient.py \
     race "PUT warna hitam" "PUT warna putih"
 
 echo "-------HASIL-------"
-# Read the key from ALL nodes after the race
+# Read the key (color and warna) from ALL nodes after the race
 python3 ../program/kvclient.py \
     --nodes 192.168.122.10:10000,192.168.122.11:11000,192.168.122.12:12000,192.168.122.13:13000  \
     getall color
+
+python3 ../program/kvclient.py \
+    --nodes 192.168.122.10:10000,192.168.122.11:11000,192.168.122.12:12000,192.168.122.13:13000  \
+    getall warna

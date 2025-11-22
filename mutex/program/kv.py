@@ -127,6 +127,7 @@ class Gossip:
         self.peers_map=peers_map
         self.sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         self.sock.bind(('0.0.0.0',udp_port))
+        print(f"[GOSSIP node {self.id}] UDP bound to port {udp_port}, peers_map={peers_map}")
         threading.Thread(target=self._rx,daemon=True).start()
         threading.Thread(target=self._tx,daemon=True).start()
 
@@ -134,9 +135,11 @@ class Gossip:
         while True:
             try:
                 data,addr=self.sock.recvfrom(65535)
+                print(f"[GOSSIP node {self.id}] UDP received {len(data)} bytes from {addr}")
                 msg=json.loads(data.decode())
                 if msg.get('type')!='gossip': continue
                 sid=msg['from']; hb=msg.get('heartbeat',0)
+                print(f"[GOSSIP node {self.id}] Gossip from node {sid}, hb={hb}")
                 now=time.monotonic()
                 self.table.setdefault(sid,{'state':STATE_SUSPECT,'hb':0,'last':now,'addr':(addr[0],None)})
                 s=self.table[sid]; s['state']=STATE_ALIVE; s['hb']=max(s['hb'],hb); s['last']=now
@@ -149,8 +152,8 @@ class Gossip:
                     if rec.get('state')==STATE_DEAD: loc['state']=STATE_DEAD
                     elif rec.get('state')==STATE_ALIVE and loc['state']!=STATE_DEAD: loc['state']=STATE_ALIVE
                     if rec.get('addr'): loc['addr']=tuple(rec['addr'])
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[GOSSIP node {self.id}] RX error: {e}")
 
     def _tx(self):
         while True:
@@ -164,10 +167,16 @@ class Gossip:
                 if age>5.0: inf['state']=STATE_DEAD
                 elif age>2.0 and inf['state']==STATE_ALIVE: inf['state']=STATE_SUSPECT
             msg={'type':'gossip','from':self.id,'heartbeat':me['hb'],'known':{str(n):{'state':inf['state'],'hb':inf['hb'],'addr':list(inf.get('addr',('127.0.0.1',None)))} for n,inf in self.table.items()}}
-            targets=random.sample(self.peers_map, k=min(2, len(self.peers_map))) if self.peers_map else []
+            # CRITICAL FIX: send to ALL peers for reliable propagation in small clusters
+            targets = self.peers_map if self.peers_map else []
+            print(f"[GOSSIP node {self.id}] TX hb={me['hb']}, sending to {len(targets)} peers: {[(h,udp,nid) for h,_,udp,nid in targets]}")
             for h,_tcp,peer_udp,_nid in targets:
-                try: self.sock.sendto(json.dumps(msg).encode(), (h, peer_udp))
-                except Exception: pass
+                try:
+                    payload = json.dumps(msg).encode()
+                    self.sock.sendto(payload, (h, peer_udp))
+                    print(f"[GOSSIP node {self.id}] Sent {len(payload)} bytes to {h}:{peer_udp}")
+                except Exception as e:
+                    print(f"[GOSSIP node {self.id}] TX error to {h}:{peer_udp}: {e}")
 
     def leader(self)->Optional[int]:
         alive=[nid for nid,inf in self.table.items() if inf['state']==STATE_ALIVE]
@@ -184,11 +193,20 @@ class Gossip:
 class MutexCoordinator:
     def __init__(self):
         self.lock=threading.Lock(); self.held_by: Optional[int]=None; self.queue: List[int]=[]
-    def req(self,nid:int)->bool:
+    def req(self, nid: int) -> bool:
+        """
+        Grant if lock is free or already held by nid.
+        Otherwise enqueue nid and return False.
+        """
         with self.lock:
             if self.held_by is None:
-                self.held_by=nid; return True
-            if nid not in self.queue: self.queue.append(nid)
+                self.held_by = nid
+                return True
+            if self.held_by == nid:
+                # already holder (promoted by rel), treat as granted
+                return True
+            if nid not in self.queue:
+                self.queue.append(nid)
             return False
     def rel(self,nid:int)->Optional[int]:
         with self.lock:
