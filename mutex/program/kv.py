@@ -166,7 +166,7 @@ class Gossip:
                 if age>5.0: inf['state']=STATE_DEAD
                 elif age>2.0 and inf['state']==STATE_ALIVE: inf['state']=STATE_SUSPECT
             msg={'type':'gossip','from':self.id,'heartbeat':me['hb'],'known':{str(n):{'state':inf['state'],'hb':inf['hb'],'addr':list(inf.get('addr',('127.0.0.1',None)))} for n,inf in self.table.items()}}
-            # send to ALL peers (except self) for reliable propagation in small clusters
+            # Send to ALL peers (except self) 
             targets = [p for p in self.peers_map if p[3] != self.id]
             # print(f"[GOSSIP node {self.id}] TX hb={me['hb']}, sending to {len(targets)} peers: {[(h,udp,nid) for h,_,udp,nid in targets]}")
             for h,_tcp,peer_udp,_nid in targets:
